@@ -11,50 +11,56 @@ def get_player_id(player_name):
         return player_dict[0]['id']
     return None
 
-def fetch_player_stats(player_name, season='2024-25', stat='PTS', statline=20):
+def fetch_player_stats(player_name, stat='PTS', statline=20):
     player_id = get_player_id(player_name)
     if not player_id:
         return f"Player '{player_name}' not found."
 
-    # Fetch game logs
-    game_log = playergamelog.PlayerGameLog(player_id=player_id, season=season)
-    game_df = game_log.get_data_frames()[0]
+    seasons = ['2024-25', '2023-24', '2022-23']
+    results = []
 
-    total_games = len(game_df)
-    over_statline_games = 0
-    percentage_over = 0
+    for season in seasons:
+        # Fetch game logs
+        game_log = playergamelog.PlayerGameLog(player_id=player_id, season=season)
+        game_df = game_log.get_data_frames()[0]
 
-    # Calculate based on the stat type
-    if stat == 'PRA':
-        over_statline_games = len(game_df[game_df['PTS'] + game_df['REB'] + game_df['AST'] > statline])
-        stat_label = "Points + Rebounds + Assists"
-    elif stat == 'PA':
-        over_statline_games = len(game_df[game_df['PTS'] + game_df['AST'] > statline])
-        stat_label = "Points + Assists"
-    elif stat == 'PR':
-        over_statline_games = len(game_df[game_df['PTS'] + game_df['REB'] > statline])
-        stat_label = "Points + Rebounds"
-    elif stat == 'RA':
-        over_statline_games = len(game_df[game_df['REB'] + game_df['AST'] > statline])
-        stat_label = "Rebounds + Assists"
-    else:
-        game_df[stat] = pd.to_numeric(game_df[stat], errors='coerce')
-        over_statline_games = len(game_df[game_df[stat] > statline])
-        stat_label = stat
+        total_games = len(game_df)
+        if total_games == 0:
+            results.append(f"No games found for {season}.")
+            continue
 
-    percentage_over = (over_statline_games / total_games) * 100 if total_games else 0
-    result = (
-        f"{player_name} has gone over {statline} {stat_label} in "
-        f"{over_statline_games}/{total_games} games ({percentage_over:.2f}%)."
-    )
-    return result
+        # Calculate based on the stat type
+        if stat == 'PRA':
+            over_statline_games = len(game_df[game_df['PTS'] + game_df['REB'] + game_df['AST'] > statline])
+            stat_label = "Points + Rebounds + Assists"
+        elif stat == 'PA':
+            over_statline_games = len(game_df[game_df['PTS'] + game_df['AST'] > statline])
+            stat_label = "Points + Assists"
+        elif stat == 'PR':
+            over_statline_games = len(game_df[game_df['PTS'] + game_df['REB'] > statline])
+            stat_label = "Points + Rebounds"
+        elif stat == 'RA':
+            over_statline_games = len(game_df[game_df['REB'] + game_df['AST'] > statline])
+            stat_label = "Rebounds + Assists"
+        else:
+            game_df[stat] = pd.to_numeric(game_df[stat], errors='coerce')
+            over_statline_games = len(game_df[game_df[stat] > statline])
+            stat_label = stat
+
+        percentage_over = (over_statline_games / total_games) * 100
+        results.append(
+            f"{player_name} has gone over {statline} {stat_label} in "
+            f"{over_statline_games}/{total_games} games ({percentage_over:.2f}%) in the {season} season. - - -"
+        )
+
+    return "\n".join(results)
 
 @app.route("/", methods=["GET", "POST"])
 def home():
     result = ""
     if request.method == "POST":
         player_name = request.form["player_name"]
-        season = request.form["season"]
+        #season = request.form["season"]
         stat_choice = request.form["stat_choice"]
         statline = float(request.form["statline"])
 
@@ -70,8 +76,7 @@ def home():
             "9": "RA"
         }
         stat = stat_map.get(stat_choice, "PTS")
-
-        result = fetch_player_stats(player_name, season, stat, statline)
+        result = fetch_player_stats(player_name, stat, statline)
 
     return render_template("index.html", result=result)
 
