@@ -48,6 +48,7 @@ def fetch_player_stats(player_name, stat='PTS', statline=20, team=None):
     results = []
     resultsTeam = []
     percentages = [] # for graphing
+    iterator = 0
 
     for season in seasons:
         # Fetch game logs
@@ -59,17 +60,6 @@ def fetch_player_stats(player_name, stat='PTS', statline=20, team=None):
             results.append(f"No games found for {season}.")
             percentages.append(0)
             continue
-
-        # Filter by team if specified
-        if team:
-            game_tf = game_df[game_df['MATCHUP'].str.contains(team.upper())]
-            total_games_tf = len(game_tf)
-            if total_games_tf == 0:
-                results.append(f"No games found against {team} in {season}.")
-                continue
-        else:
-            game_tf = None
-            total_games_tf = 0
 
         # Calculate based on the stat type
         def calculate_over_statline(df, stat):
@@ -84,30 +74,38 @@ def fetch_player_stats(player_name, stat='PTS', statline=20, team=None):
             elif stat == 'RA':
                 return len(df[df['REB'] + df['AST'] > statline])
             else:
-                df[stat] = pd.to_numeric(df[stat], errors='coerce')
+                df.loc[:,stat] = pd.to_numeric(df[stat], errors='coerce')
                 return len(df[df[stat] > statline])
 
         over_statline_games = calculate_over_statline(game_df, stat)
         percentage_over = (over_statline_games / total_games) * 100 if total_games > 0 else 0
         percentages.append(percentage_over)
-
-        if team:
-            tf_over = calculate_over_statline(game_tf, stat)
-            percentage_over_tf = (tf_over / total_games_tf) * 100 if total_games_tf > 0 else 0
-            resultsTeam.append(
-                f"|* * * * * {player_name} went OVER {statline} {stat} in {tf_over}/{total_games_tf} games "
-                f"({percentage_over_tf:.2f}%) ONLY against {team.upper()} ---> {season} season. * * * * *|<br><br>"
-            )
-
+        
         results.append(
             f"|* * * * * {player_name} went OVER {statline} {stat} in {over_statline_games}/{total_games} games "
-            f"({percentage_over:.2f}%) ---> {season} season. * * * * *|<br>"
+            f"({percentage_over:.2f}%) ---> {season} season. * * * * *|<br><br>"
         )
-    results = [f"{a} {b}" for a, b in zip(results, resultsTeam)]
+        
+        # Filter by team if specified
+        if team:
+            game_tf = game_df[game_df['MATCHUP'].str.contains(team.upper())]
+            total_games_tf = len(game_tf)
+            if total_games_tf > 0:
+                tf_over = calculate_over_statline(game_tf, stat)
+                percentage_over_tf = (tf_over / total_games_tf) * 100
+                results.pop(iterator)
+                results.append(
+                    f"|* * * * * {player_name} went OVER {statline} {stat} in {over_statline_games}/{total_games} games "
+                    f"({percentage_over:.2f}%) ---> {season} season. * * * * *|"
+                    f"|* * * * * {player_name} went OVER {statline} {stat} in {tf_over}/{total_games_tf} games "
+                    f"({percentage_over_tf:.2f}%) ONLY against {team.upper()} in the {season} season. * * * * *|<br><br>"
+                )
+        iterator = iterator + 1
+        
     
     while len(percentages) < 3:
         percentages.append(0)
-    return "\n".join(results), percentages
+    return "".join(results), percentages
 
 @app.route("/", methods=["GET", "POST"])
 def home():
