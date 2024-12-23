@@ -62,7 +62,9 @@
                                 <label for="statline" class="form-label">Projected Quantity:</label>
                                 <input type="number" class="form-control" id="statline" name="statline" step="0.1" required />
                             </div>
-                            <button type="submit" class="btn btn-primary">Check Stats</button>
+                            	<label for="team">Opponent Team (Optional):</label>
+    				<input type="text" name="team" id="team">
+                            	<button type="submit" class="btn btn-primary">Check Stats</button>
                         </form>
                     </div>
                 </div>
@@ -72,11 +74,17 @@
         <section class="projects-section bg-light">
             <div class="container px-4 px-lg-5 text-center">
                 <h2 class="mb-4" style="color: red;">Result (Shows Last 3 seasons):</h2>
-                <p class="text-black-50" style="color: green; font-weight: bold; font-size: x-large;">{{ result }}</p>
+                <p class="text-black-50" style="color: green; font-weight: bold;">{{ result|safe }}</p>
             </div>
+            
+            {% if graph_url %}
+        <h3>Visuals (Green if Hit more than 50% of Season):</h3>
+        <img src="{{ graph_url }}" alt="Performance Graph">
+        {% endif %}
         </section>
         <!-- Footer-->
         <footer class="footer bg-black small text-center text-white-50;">
+        
             <div class="container px-4 px-lg-5">Copyright &copy; DMOS PICKS 2024</div>
         </footer>
         <!-- Bootstrap core JS-->
