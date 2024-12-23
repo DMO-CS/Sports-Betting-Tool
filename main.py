@@ -2,8 +2,36 @@ from flask import Flask, request, render_template
 from nba_api.stats.endpoints import playergamelog
 from nba_api.stats.static import players
 import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import base64
 
 app = Flask(__name__)
+
+def create_bar_graph(percentages, seasons):
+    # Define bar colors based on the threshold
+    colors = ['green' if pct > 50 else 'red' for pct in percentages]
+
+    # Create the bar plot
+    plt.figure(figsize=(5, 4))
+    plt.bar(seasons, percentages, color=colors)
+    plt.axhline(50, color='black', linestyle='--', linewidth=1)  # Add a threshold line at 50%
+    plt.title('Performance by Season')
+    plt.ylabel('Percentage Over Threshold (%)')
+    plt.xlabel('Season')
+    
+    plt.gca().set_facecolor('burlywood')  # Axes background
+    plt.gcf().set_facecolor('burlywood')  # Figure background
+
+    # Save the plot to a BytesIO object
+    img = io.BytesIO()
+    plt.savefig(img, format='png', bbox_inches='tight')
+    img.seek(0)
+    plt.close()
+
+    # Encode the image to base64 for embedding in HTML
+    graph_url = base64.b64encode(img.getvalue()).decode()
+    return f"data:image/png;base64,{graph_url}"
 
 def get_player_id(player_name):
     player_dict = players.find_players_by_full_name(player_name.title())
@@ -11,13 +39,15 @@ def get_player_id(player_name):
         return player_dict[0]['id']
     return None
 
-def fetch_player_stats(player_name, stat='PTS', statline=20):
+def fetch_player_stats(player_name, stat='PTS', statline=20, team=None):
     player_id = get_player_id(player_name)
     if not player_id:
         return f"Player '{player_name}' not found."
 
     seasons = ['2024-25', '2023-24', '2022-23']
     results = []
+    resultsTeam = []
+    percentages = [] # for graphing
 
     for season in seasons:
         # Fetch game logs
@@ -27,42 +57,68 @@ def fetch_player_stats(player_name, stat='PTS', statline=20):
         total_games = len(game_df)
         if total_games == 0:
             results.append(f"No games found for {season}.")
+            percentages.append(0)
             continue
 
-        # Calculate based on the stat type
-        if stat == 'PRA':
-            over_statline_games = len(game_df[game_df['PTS'] + game_df['REB'] + game_df['AST'] > statline])
-            stat_label = "Points + Rebounds + Assists"
-        elif stat == 'PA':
-            over_statline_games = len(game_df[game_df['PTS'] + game_df['AST'] > statline])
-            stat_label = "Points + Assists"
-        elif stat == 'PR':
-            over_statline_games = len(game_df[game_df['PTS'] + game_df['REB'] > statline])
-            stat_label = "Points + Rebounds"
-        elif stat == 'RA':
-            over_statline_games = len(game_df[game_df['REB'] + game_df['AST'] > statline])
-            stat_label = "Rebounds + Assists"
+        # Filter by team if specified
+        if team:
+            game_tf = game_df[game_df['MATCHUP'].str.contains(team.upper())]
+            total_games_tf = len(game_tf)
+            if total_games_tf == 0:
+                results.append(f"No games found against {team} in {season}.")
+                continue
         else:
-            game_df[stat] = pd.to_numeric(game_df[stat], errors='coerce')
-            over_statline_games = len(game_df[game_df[stat] > statline])
-            stat_label = stat
+            game_tf = None
+            total_games_tf = 0
 
-        percentage_over = (over_statline_games / total_games) * 100
+        # Calculate based on the stat type
+        def calculate_over_statline(df, stat):
+            if df is None or len(df) == 0:
+                return 0
+            if stat == 'PRA':
+                return len(df[df['PTS'] + df['REB'] + df['AST'] > statline])
+            elif stat == 'PA':
+                return len(df[df['PTS'] + df['AST'] > statline])
+            elif stat == 'PR':
+                return len(df[df['PTS'] + df['REB'] > statline])
+            elif stat == 'RA':
+                return len(df[df['REB'] + df['AST'] > statline])
+            else:
+                df[stat] = pd.to_numeric(df[stat], errors='coerce')
+                return len(df[df[stat] > statline])
+
+        over_statline_games = calculate_over_statline(game_df, stat)
+        percentage_over = (over_statline_games / total_games) * 100 if total_games > 0 else 0
+        percentages.append(percentage_over)
+
+        if team:
+            tf_over = calculate_over_statline(game_tf, stat)
+            percentage_over_tf = (tf_over / total_games_tf) * 100 if total_games_tf > 0 else 0
+            resultsTeam.append(
+                f"|* * * * * {player_name} went OVER {statline} {stat} in {tf_over}/{total_games_tf} games "
+                f"({percentage_over_tf:.2f}%) ONLY against {team.upper()} ---> {season} season. * * * * *|<br><br>"
+            )
+
         results.append(
-            f"{player_name} has gone over {statline} {stat_label} in "
-            f"{over_statline_games}/{total_games} games ({percentage_over:.2f}%) in the {season} season. - - -"
+            f"|* * * * * {player_name} went OVER {statline} {stat} in {over_statline_games}/{total_games} games "
+            f"({percentage_over:.2f}%) ---> {season} season. * * * * *|<br>"
         )
-
-    return "\n".join(results)
+    results = [f"{a} {b}" for a, b in zip(results, resultsTeam)]
+    
+    while len(percentages) < 3:
+        percentages.append(0)
+    return "\n".join(results), percentages
 
 @app.route("/", methods=["GET", "POST"])
 def home():
     result = ""
+    graph_url = None #initialization
     if request.method == "POST":
         player_name = request.form["player_name"]
         #season = request.form["season"]
         stat_choice = request.form["stat_choice"]
         statline = float(request.form["statline"])
+        team = request.form["team"].strip() if "team" in request.form else None
 
         stat_map = {
             "1": "PTS",
@@ -76,9 +132,12 @@ def home():
             "9": "RA"
         }
         stat = stat_map.get(stat_choice, "PTS")
-        result = fetch_player_stats(player_name, stat, statline)
+        result, percentages = fetch_player_stats(player_name, stat, statline, team)
+        
+        seasons = ['2024-25', '2023-24', '2022-23']
+        graph_url = create_bar_graph(percentages, seasons)
 
-    return render_template("index.html", result=result)
+    return render_template("index.html", result=result, graph_url=graph_url)
 
 if __name__ == "__main__":
     app.run(debug=True, host= '0.0.0.0')
